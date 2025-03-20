@@ -33,7 +33,7 @@ export function DekUploadButton({ text, onUpload }: Props) {
 
   return (
     <label>
-      {text}
+      <h3>{text}</h3>
       <input type="file" accept=".dek" onChange={handleUpload} />
     </label>
   );
