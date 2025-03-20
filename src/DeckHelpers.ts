@@ -6,6 +6,7 @@ export type CardData = {
   name: string;
   quantity: number;
 };
+
 const CardSchema = v.object({
   id: v.string(),
   name: v.string(),
@@ -17,9 +18,7 @@ const CardSchema = v.object({
   ),
 });
 
-export type DeckList = {
-  cards: Array<CardData>;
-};
+export type DeckList = { [index: string]: CardData };
 
 export type ParseResult =
   | {
@@ -35,7 +34,7 @@ const parserOptions: X2jOptions = {
   ignoreAttributes: false,
 };
 
-export function parseAsDeck(xml: String): ParseResult {
+export function parseAsDeck(xml: string): ParseResult {
   const parser = new XMLParser(parserOptions);
   const result = parser.parse(xml);
 
@@ -53,41 +52,57 @@ export function parseAsDeck(xml: String): ParseResult {
     };
   }
 
-  const cards: Array<CardData> = [];
+  const cards: DeckList = {};
   for (let cardData of result.Deck.Cards) {
     let rawCard = {
       id: cardData["@_CatID"],
       quantity: cardData["@_Quantity"],
       name: cardData["@_Name"],
     };
-    let card = v.parse(CardSchema, rawCard);
-    cards.push(card);
+    let card: CardData = v.parse(CardSchema, rawCard);
+    cards[card.id] = card;
   }
-
-  cards.sort((a, b) => {
-    const nameA = a.name.toUpperCase(); 
-    const nameB = b.name.toUpperCase(); 
-    if (nameA < nameB) {
-      return -1;
-    }
-    if (nameA > nameB) {
-      return 1;
-    }
-    return 0;
-  });
 
   return {
     success: true,
-    data: { cards },
+    data: cards,
   };
+}
+
+// since we only have to add a list of cards to pre-existing xml, manually handle
+// instead of using xml library to generate for us
+export function generateDotDekXml(decklist: DeckList): string {
+  const cards = Object.values(decklist)
+    .map((card) => {
+      return `\
+  <Cards CatID="${card.id}" Quantity="${card.quantity}" Sideboard="false" Name="${card.name}" Annotation="0" />`;
+    })
+    .join("\n");
+
+  return `\
+<?xml version="1.0" encoding="utf-8"?>
+<Deck xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <NetDeckID>0</NetDeckID>
+  <PreconstructedDeckID>0</PreconstructedDeckID>
+    ${cards}
+</Deck>
+  `;
 }
 
 // going by id, remove all cards in after, that are present in before.
 // return a list of the remaining after cards.
-function diffDecks(beforeDek: DeckList, afterDek: DeckList) {
-  for (let card of beforeDek.cards) {
-    // should these be arrays? 
-    // we will have to iterate over one of these lists way too much
-    // instead maybe objects with id as key(and val)
+export function diffDecks(beforeDek: DeckList, afterDek: DeckList): DeckList {
+  const remainingCards: DeckList = {};
+
+  for (let card of Object.values(afterDek)) {
+    const beforeQuant = beforeDek[card.id]?.quantity ?? 0;
+    const remaining = card.quantity - beforeQuant;
+    if (remaining > 0) {
+      remainingCards[card.id] = { ...card, quantity: remaining };
+    } else if (remaining < 0) {
+      console.warn('negative card quantity, something wrong', card.name, remaining);
+    }
   }
+
+  return remainingCards;
 }
